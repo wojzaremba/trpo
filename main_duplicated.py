@@ -11,15 +11,16 @@ from gym.spaces import Discrete, Box
 import prettytensor as pt
 from space_conversion import SpaceConversionEnv
 import tempfile
+import sys
 
 class TRPOAgent(object):
 
     config = dict2(**{
-        "timesteps_per_batch": 50,
+        "timesteps_per_batch": 200,
         "max_pathlength": 10000,
         "gamma": 0.5,
-        "max_kl": 0.005,
-        "cg_damping": 1e-2})
+        "max_kl": 0.01,
+        "cg_damping": 1e-3})
 
     def __init__(self, env):
         self.env = env
@@ -27,15 +28,19 @@ class TRPOAgent(object):
            not isinstance(env.action_space, Discrete):
             print("Incompatible spaces.")
             exit(-1)
+        print(env.observation_space)
+        print(env.action_space)
         self.session = tf.Session()
         self.end_count = 0
         self.train = True
         self.obs = obs = tf.placeholder(
             dtype, shape=[
-                None, env.observation_space.shape[0]])
-        self.action = action = tf.placeholder(tf.int64, shape=[None])  
-        self.advant = advant = tf.placeholder(dtype, shape=[None])  
-        self.oldaction_dist = oldaction_dist = tf.placeholder(dtype, shape=[None, env.action_space.n])
+                None, 2 * env.observation_space.shape[0] + env.action_space.n], name="obs")
+        self.prev_obs = np.zeros((1, env.observation_space.shape[0]))
+        self.prev_action = np.zeros((1, env.action_space.n))
+        self.action = action = tf.placeholder(tf.int64, shape=[None], name="action")  
+        self.advant = advant = tf.placeholder(dtype, shape=[None], name="advant")  
+        self.oldaction_dist = oldaction_dist = tf.placeholder(dtype, shape=[None, env.action_space.n], name="oldaction_dist")
 
         # Create neural network.
         action_dist_n, _ = (pt.wrap(self.obs).
@@ -79,12 +84,16 @@ class TRPOAgent(object):
 
     def act(self, obs, *args):
         obs = np.expand_dims(obs, 0)
-        action_dist_n = self.session.run(self.action_dist_n, {self.obs: obs})
+        obs_new = np.concatenate([obs, self.prev_obs, self.prev_action], 1)
+        action_dist_n = self.session.run(self.action_dist_n, {self.obs: obs_new})
         if self.train:
             action = int(cat_sample(action_dist_n)[0])
         else:
             action = int(np.argmax(action_dist_n))
-        return action, {"action_dist": action_dist_n}
+        self.prev_obs = obs
+        self.prev_action *= 0.0
+        self.prev_action[0, action] = 1.0
+        return action, action_dist_n, np.squeeze(obs_new)
 
     def learn(self):
         config = self.config
@@ -129,10 +138,10 @@ class TRPOAgent(object):
                 [path["rewards"].sum() for path in paths])
 
             print "\n********** Iteration %i ************" % i
-            if episoderewards.mean() > 0.25 * self.env._env.spec.reward_threshold:
+            if episoderewards.mean() > 1.1 * self.env._env.spec.reward_threshold:
                 self.train = False
                 self.end_count += 1
-                if self.end_count > 50:
+                if self.end_count > 100:
                     break
 
             if self.train: 
@@ -176,10 +185,9 @@ class TRPOAgent(object):
 training_dir = tempfile.mkdtemp()
 logging.getLogger().setLevel(logging.DEBUG)
 
-env = envs.make('Copy-v0')
+env = envs.make("DuplicatedInput-v0")
 env.monitor.start(training_dir,
-                  algorithm_name='TRPO',
-                  algorithm_id='vanilla_trpo-v0')
+                  algorithm_id='trpo_with_prev')
 
 env = SpaceConversionEnv(env, Box, Discrete)
 
@@ -188,4 +196,4 @@ agent.learn()
 env.monitor.close()
 gym.upload(training_dir)
 
-
+     

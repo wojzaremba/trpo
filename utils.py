@@ -26,10 +26,10 @@ def rollout(env, agent, max_pathlength, n_timesteps):
             env.monitor.configure(video=False)
         ob = env.reset()
         for _ in xrange(max_pathlength):
+            action, action_dist, ob = agent.act(ob)
             obs.append(ob)
-            action, info = agent.act(ob)
             actions.append(action)
-            action_dists.append(info.get("action_dist", []))
+            action_dists.append(action_dist)
             res = env.step(action)
             ob = res[0]
             rewards.append(res[1])
@@ -39,6 +39,8 @@ def rollout(env, agent, max_pathlength, n_timesteps):
                         "rewards": np.array(rewards),
                         "actions": np.array(actions)}
                 paths.append(path)
+                agent.prev_action *= 0.0
+                agent.prev_obs *= 0.0
                 break
         timesteps_sofar += len(path["rewards"])
     return paths
