@@ -16,11 +16,11 @@ import sys
 class TRPOAgent(object):
 
     config = dict2(**{
-        "timesteps_per_batch": 200,
+        "timesteps_per_batch": 1000,
         "max_pathlength": 10000,
-        "gamma": 0.5,
         "max_kl": 0.01,
-        "cg_damping": 1e-3})
+        "gamma": 0.99,
+        "cg_damping": 1e-2})
 
     def __init__(self, env):
         self.env = env
@@ -44,9 +44,8 @@ class TRPOAgent(object):
 
         # Create neural network.
         action_dist_n, _ = (pt.wrap(self.obs).
-                       fully_connected(64, activation_fn=tf.tanh).
-                       fully_connected(64, activation_fn=tf.tanh).
-                       softmax_classifier(env.action_space.n))
+                            fully_connected(64, activation_fn=tf.nn.relu).
+                            softmax_classifier(env.action_space.n))
         eps = 1e-8
         self.action_dist_n = action_dist_n
         N = tf.shape(obs)[0]
@@ -84,13 +83,14 @@ class TRPOAgent(object):
 
     def act(self, obs, *args):
         obs = np.expand_dims(obs, 0)
+        self.prev_obs = obs
         obs_new = np.concatenate([obs, self.prev_obs, self.prev_action], 1)
+
         action_dist_n = self.session.run(self.action_dist_n, {self.obs: obs_new})
         if self.train:
             action = int(cat_sample(action_dist_n)[0])
         else:
             action = int(np.argmax(action_dist_n))
-        self.prev_obs = obs
         self.prev_action *= 0.0
         self.prev_action[0, action] = 1.0
         return action, action_dist_n, np.squeeze(obs_new)
@@ -102,6 +102,7 @@ class TRPOAgent(object):
         i = 0
         while True:
             # Generating paths.
+            print("Rollout")
             paths = rollout(
                 self.env,
                 self,
@@ -185,7 +186,12 @@ class TRPOAgent(object):
 training_dir = tempfile.mkdtemp()
 logging.getLogger().setLevel(logging.DEBUG)
 
-env = envs.make("DuplicatedInput-v0")
+if len(sys.argv) > 1:
+    task = sys.argv[1]
+else:
+    task = "Copy-v0"
+
+env = envs.make(task)
 env.monitor.start(training_dir,
                   algorithm_id='trpo_with_prev')
 
