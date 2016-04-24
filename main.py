@@ -192,7 +192,6 @@ else:
 
 env = envs.make(task)
 env.monitor.start(training_dir,
-                  writeup="https://gist.github.com/wojzaremba/ee5a0a4eef930c31379b14ba8027f7af",
                   algorithm_id='trpo_with_prev')
 
 env = SpaceConversionEnv(env, Box, Discrete)
