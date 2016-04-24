@@ -14,16 +14,11 @@ def discount(x, gamma):
     assert x.ndim >= 1
     return scipy.signal.lfilter([1], [1, -gamma], x[::-1], axis=0)[::-1]
 
-
 def rollout(env, agent, max_pathlength, n_timesteps):
     paths = []
     timesteps_sofar = 0
     while timesteps_sofar < n_timesteps:
         obs, actions, rewards, action_dists = [], [], [], []
-        if np.random.randint(0, 100) == 0:
-            env.monitor.configure(video=True)
-        else:
-            env.monitor.configure(video=False)
         ob = env.reset()
         for _ in xrange(max_pathlength):
             action, action_dist, ob = agent.act(ob)

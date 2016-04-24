@@ -8,6 +8,22 @@ from gym.spaces import Discrete, Box, Tuple
 from gym import Env
 
 
+def box2box4obj(x, old_space_obj, new_space_obj):
+    assert(old_space_obj.contains(x))
+    action = np.reshape(x, new_space_obj.shape)
+    assert(new_space_obj.contains(action))
+    return action
+
+def box2box4class(box_space):
+    shape = np.prod(box_space.shape)
+    low = box_space.low
+    high = box_space.high
+    if isinstance(low, np.ndarray):
+        low = np.reshape(low, (shape, ))
+    if isinstance(high, np.ndarray):
+        high = np.reshape(high, (shape, ))
+    return Box(low, high)
+
 def discrete2tuple4obj(x, discrete_space, tuple_space):
     assert(discrete_space.contains(x))
     action = []
@@ -45,21 +61,14 @@ def ident4obj(x, old_space_obj, new_space_obj):
 
 class SpaceConversionEnv(Env):
     convertable = {(Tuple, Discrete): (tuple2discrete4obj, discrete2tuple4obj, tuple2discrete4class), \
-                   (Discrete, Box): (discrete2box4obj, box2discrete4obj, discrete2box4class)}
+                   (Discrete, Box): (discrete2box4obj, box2discrete4obj, discrete2box4class), \
+                   (Box, Box): (box2box4obj, box2box4obj, box2box4class)}
     
     def __init__(self, env, target_observation_space=None, target_action_space=None, verbose=False):
         self._verbose = verbose
         self._env = env
         self.action_convert = None
         self.observation_convert = None
-        if self.action_space.__class__ == target_action_space or \
-           target_action_space is None:
-            self.action_convert = ident4obj
-            self._action_space = env.action_space
-        if self.observation_space.__class__ == target_observation_space or \
-           target_observation_space is None:
-            self.observation_convert = ident4obj
-            self._observation_space = env.observation_space
         for pairs, convert in self.convertable.iteritems():
             if env.action_space.__class__ == pairs[0] and \
                target_action_space == pairs[1] and \
@@ -71,6 +80,18 @@ class SpaceConversionEnv(Env):
                self.observation_convert is None:
                 self.observation_convert = convert[0]
                 self._observation_space_ = convert[2](env.observation_space)
+
+        if self.action_convert is None and \
+           (self.action_space.__class__ == target_action_space or 
+             target_action_space is None):
+            self.action_convert = ident4obj
+            self._action_space = env.action_space
+        if self.observation_convert is None and \
+           (self.observation_space.__class__ == target_observation_space or \
+           target_observation_space is None):
+            self.observation_convert = ident4obj
+            self._observation_space = env.observation_space
+
         assert(self.action_convert is not None)
         assert(self.observation_convert is not None)
 

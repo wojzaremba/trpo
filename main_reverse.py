@@ -11,15 +11,14 @@ from gym.spaces import Discrete, Box
 import prettytensor as pt
 from space_conversion import SpaceConversionEnv
 import tempfile
+import sys
 
 class TRPOAgent(object):
 
     config = dict2(**{
-        "timesteps_per_batch": 50,
+        "timesteps_per_batch": 10000,
         "max_pathlength": 10000,
-        "gamma": 0.5,
         "max_kl": 0.005,
-        "epoch": 20,
         "cg_damping": 1e-2})
 
     def __init__(self, env):
@@ -28,24 +27,25 @@ class TRPOAgent(object):
            not isinstance(env.action_space, Discrete):
             print("Incompatible spaces.")
             exit(-1)
+        print(env.observation_space)
+        print(env.action_space)
         self.session = tf.Session()
         self.end_count = 0
         self.train = True
         self.obs = obs = tf.placeholder(
             dtype, shape=[
-                None, env.observation_space.shape[0]])
-
+                None, env.observation_space.shape[0] + env.action_space.n], name="obs")
         self.prev_obs = np.zeros((1, env.observation_space.shape[0]))
         self.prev_action = np.zeros((1, env.action_space.n))
-        self.action = action = tf.placeholder(tf.int64, shape=[None])  
-        self.advant = advant = tf.placeholder(dtype, shape=[None])  
-        self.oldaction_dist = oldaction_dist = tf.placeholder(dtype, shape=[None, env.action_space.n])
+        self.action = action = tf.placeholder(tf.int64, shape=[None], name="action")  
+        self.advant = advant = tf.placeholder(dtype, shape=[None], name="advant")  
+        self.oldaction_dist = oldaction_dist = tf.placeholder(dtype, shape=[None, env.action_space.n], name="oldaction_dist")
 
         # Create neural network.
         action_dist_n, _ = (pt.wrap(self.obs).
-                       fully_connected(64, activation_fn=tf.tanh).
-                       fully_connected(64, activation_fn=tf.tanh).
-                       softmax_classifier(env.action_space.n))
+                            fully_connected(64, activation_fn=tf.nn.relu).
+                            fully_connected(64, activation_fn=tf.nn.relu).
+                            softmax_classifier(env.action_space.n))
         eps = 1e-8
         self.action_dist_n = action_dist_n
         N = tf.shape(obs)[0]
@@ -83,12 +83,35 @@ class TRPOAgent(object):
 
     def act(self, obs, *args):
         obs = np.expand_dims(obs, 0)
-        action_dist_n = self.session.run(self.action_dist_n, {self.obs: obs})
+        obs_new = np.concatenate([obs, self.prev_action], 1)
+
+        # XXXXX Verifies that reverse env is not broken. This
+        # is hard-coded solution
+        obs = np.argmax(obs)
+        prev_action = np.argmax(self.prev_action)
+        if np.sum(self.prev_action) == 0:
+            action = 1
+        else:
+            if obs == 2:
+                action = 0
+            else:
+                pred = int(prev_action / 2) % 2
+                if pred == 0:
+                    action = 1
+                else:
+                    action = 0 + 1 * 2 + obs * 4
+
+        action_dist_n = self.session.run(self.action_dist_n, {self.obs: obs_new})
+        '''
         if self.train:
             action = int(cat_sample(action_dist_n)[0])
         else:
             action = int(np.argmax(action_dist_n))
-        return action, action_dist_n, np.squeeze(obs)
+        '''
+        self.prev_obs = obs
+        self.prev_action *= 0.0
+        self.prev_action[0, action] = 1.0
+        return action, action_dist_n, np.squeeze(obs_new)
 
     def learn(self):
         config = self.config
@@ -106,7 +129,22 @@ class TRPOAgent(object):
             # Computing returns and estimating advantage function.
             for path in paths:
                 path["baseline"] = self.vf.predict(path)
-                path["returns"] = discount(path["rewards"], config.gamma)
+                rets = np.zeros(len(path["rewards"]))
+                # Funky discount, which is independent of episode length.
+                last = 0.0
+                if path["rewards"][-1] == 1.0:
+                    rets += 5.0
+                else:
+                    for j in range(len(path["rewards"])):
+                        val = path["rewards"][-j - 1] 
+                        if val == -1.0:
+                            last = -1.0
+                        elif val == 1.0:
+                            last = 1.0
+                            rets[-j - 1] = 2.0
+                            continue
+                        rets[-j - 1] = last
+                path["returns"] = rets
                 path["advant"] = path["returns"] - path["baseline"]
 
             # Updating policy.
@@ -133,16 +171,11 @@ class TRPOAgent(object):
                 [path["rewards"].sum() for path in paths])
 
             print "\n********** Iteration %i ************" % i
-
-            if self.env._env.spec.reward_threshold is not None:
-                if episoderewards.mean() > max(0.25 * self.env._env.spec.reward_threshold, 4.0):
-                    self.train = False
-                    self.end_count += 1
-                    if self.end_count > 100:
-                        break
-            elif i > config.epoch:
-                break
-
+            if episoderewards.mean() > 1.1 * self.env._env.spec.reward_threshold:
+                self.train = False
+                self.end_count += 1
+                if self.end_count > 100:
+                    break
 
             if self.train: 
                 thprev = self.gf()
@@ -185,9 +218,9 @@ class TRPOAgent(object):
 training_dir = tempfile.mkdtemp()
 logging.getLogger().setLevel(logging.DEBUG)
 
-env = envs.make('AirRaid-ram-v0')
+env = envs.make("Reverse-v0")
 env.monitor.start(training_dir,
-                  algorithm_id='vanilla_trpo')
+                  algorithm_id='trpo_with_prev')
 
 env = SpaceConversionEnv(env, Box, Discrete)
 
@@ -196,4 +229,4 @@ agent.learn()
 env.monitor.close()
 gym.upload(training_dir)
 
-
+     
