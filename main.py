@@ -16,11 +16,10 @@ import sys
 class TRPOAgent(object):
 
     config = dict2(**{
-        "timesteps_per_batch": 1000,
+        "timesteps_per_batch": 5000,
         "max_pathlength": 10000,
-        "max_kl": 0.01,
-        "gamma": 0.99,
-        "cg_damping": 1e-2})
+        "max_kl": 0.005,
+        "gamma": 0.99})
 
     def __init__(self, env):
         self.env = env
@@ -189,10 +188,11 @@ logging.getLogger().setLevel(logging.DEBUG)
 if len(sys.argv) > 1:
     task = sys.argv[1]
 else:
-    task = "Copy-v0"
+    task = "RepeatCopy-v0"
 
 env = envs.make(task)
 env.monitor.start(training_dir,
+                  writeup="https://gist.github.com/wojzaremba/ee5a0a4eef930c31379b14ba8027f7af",
                   algorithm_id='trpo_with_prev')
 
 env = SpaceConversionEnv(env, Box, Discrete)
