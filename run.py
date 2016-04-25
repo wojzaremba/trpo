@@ -8,4 +8,4 @@ os.system("screen -wipe")
 
 
 for t in tasks:
-    os.system("screen -dm -S trpo_%s bash -c '. ~/.profile; CUDA_VISIBLE_DEVICES=[] python main.py %s 2>&1 | tee logs_%s ; bash'" % (t, t, t))
+    os.system("screen -dm -S trpo_%s bash -c '. ~/.profile; . ~/.bashrc; CUDA_VISIBLE_DEVICES=[] python main.py %s 2>&1 | tee logs_%s ; bash'" % (t, t, t))
