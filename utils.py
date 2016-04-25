@@ -2,6 +2,7 @@ import numpy as np
 import tensorflow as tf
 import random
 import scipy.signal
+import prettytensor as pt
 
 seed = 1
 random.seed(seed)
@@ -20,6 +21,8 @@ def rollout(env, agent, max_pathlength, n_timesteps):
     while timesteps_sofar < n_timesteps:
         obs, actions, rewards, action_dists = [], [], [], []
         ob = env.reset()
+        agent.prev_action *= 0.0
+        agent.prev_obs *= 0.0
         for _ in xrange(max_pathlength):
             action, action_dist, ob = agent.act(ob)
             obs.append(ob)
@@ -41,26 +44,50 @@ def rollout(env, agent, max_pathlength, n_timesteps):
     return paths
 
 
-class LinearVF(object):
+class VF(object):
     coeffs = None
+
+    def __init__(self, session):
+        self.net = None
+        self.session = session
+
+    def create_net(self, shape):
+        print(shape)
+        self.x = tf.placeholder(tf.float32, shape=[None, shape], name="x")
+        self.y = tf.placeholder(tf.float32, shape=[None], name="y")
+        self.net = (pt.wrap(self.x).
+                    fully_connected(64, activation_fn=tf.nn.relu).
+                    fully_connected(64, activation_fn=tf.nn.relu).
+                    fully_connected(1))
+        self.net = tf.reshape(self.net, (-1, ))
+        l2 = (self.net - self.y) * (self.net - self.y)
+        self.train = tf.train.AdamOptimizer().minimize(l2)
+        self.session.run(tf.initialize_all_variables())
+        
 
     def _features(self, path):
         o = path["obs"].astype('float32')
         o = o.reshape(o.shape[0], -1)
+        act = path["action_dists"].astype('float32')
         l = len(path["rewards"])
-        al = np.arange(l).reshape(-1, 1) / 100.0
-        return np.concatenate([o, o**2, al, al**2, np.ones((l, 1))], axis=1)
+        al = np.arange(l).reshape(-1, 1) / 10.0
+        ret = np.concatenate([o, act, al, np.ones((l, 1))], axis=1)
+        return ret
 
     def fit(self, paths):
         featmat = np.concatenate([self._features(path) for path in paths])
+        if self.net is None:
+            self.create_net(featmat.shape[1])
         returns = np.concatenate([path["returns"] for path in paths])
-        n_col = featmat.shape[1]
-        lamb = 2.0
-        self.coeffs = np.linalg.lstsq(featmat.T.dot(featmat) + lamb * np.identity(n_col), featmat.T.dot(returns))[0]
+        for _ in range(50):
+            self.session.run(self.train, {self.x: featmat, self.y: returns})
 
     def predict(self, path):
-        return np.zeros(len(path["rewards"])) if self.coeffs is None else self._features(
-            path).dot(self.coeffs)
+        if self.net is None:
+            return np.zeros(len(path["rewards"])) 
+        else:
+            ret = self.session.run(self.net, {self.x: self._features(path)})
+            return np.reshape(ret, (ret.shape[0], ))
 
 
 def cat_sample(prob_nk):
@@ -177,4 +204,7 @@ class dict2(dict):
         dict.__init__(self, kwargs)
         self.__dict__ = self
 
-
+def explained_variance(ypred, y):
+    assert y.ndim == 1 and ypred.ndim == 1
+    vary = np.var(y)
+    return np.nan if vary==0 else 1 - np.var(y-ypred)/vary
