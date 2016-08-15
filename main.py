@@ -19,6 +19,7 @@ class TRPOAgent(object):
         "timesteps_per_batch": 1000,
         "max_pathlength": 10000,
         "max_kl": 0.01,
+        "cg_damping": 0.1,
         "gamma": 0.95})
 
     def __init__(self, env):
@@ -153,7 +154,7 @@ class TRPOAgent(object):
 
                 def fisher_vector_product(p):
                     feed[self.flat_tangent] = p
-                    return self.session.run(self.fvp, feed)
+                    return self.session.run(self.fvp, feed) + config.cg_damping * p
 
                 g = self.session.run(self.pg, feed_dict=feed)
                 stepdir = conjugate_gradient(fisher_vector_product, -g)
