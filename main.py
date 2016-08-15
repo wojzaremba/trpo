@@ -37,8 +37,8 @@ class TRPOAgent(object):
                 None, 2 * env.observation_space.shape[0] + env.action_space.n], name="obs")
         self.prev_obs = np.zeros((1, env.observation_space.shape[0]))
         self.prev_action = np.zeros((1, env.action_space.n))
-        self.action = action = tf.placeholder(tf.int64, shape=[None], name="action")  
-        self.advant = advant = tf.placeholder(dtype, shape=[None], name="advant")  
+        self.action = action = tf.placeholder(tf.int64, shape=[None], name="action")
+        self.advant = advant = tf.placeholder(dtype, shape=[None], name="advant")
         self.oldaction_dist = oldaction_dist = tf.placeholder(dtype, shape=[None, env.action_space.n], name="oldaction_dist")
 
         # Create neural network.
@@ -147,7 +147,7 @@ class TRPOAgent(object):
                 self.end_count += 1
                 if self.end_count > 100:
                     break
-            if self.train: 
+            if self.train:
                 self.vf.fit(paths)
                 thprev = self.gf()
 
@@ -166,7 +166,6 @@ class TRPOAgent(object):
                     self.sff(th)
                     return self.session.run(self.losses[0], feed_dict=feed)
                 theta = linesearch(loss, thprev, fullstep, neggdotstepdir / lm)
-                theta = thprev + fullstep
                 self.sff(theta)
 
                 surrafter, kloldnew, entropy = self.session.run(
@@ -209,7 +208,7 @@ env = SpaceConversionEnv(env, Box, Discrete)
 agent = TRPOAgent(env)
 agent.learn()
 env.monitor.close()
-gym.upload(training_dir, 
+gym.upload(training_dir,
            algorithm_id='trpo_ff')
 
-     
+
